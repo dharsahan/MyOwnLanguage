@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 use crate::ast::{BinaryOperator, Expr, Stmt, Value};
 
+/// Signal for loop control flow
+enum LoopSignal {
+    None,
+    Break,
+    Continue,
+}
+
 pub struct Environment {
     variables: HashMap<String, Value>,
 }
@@ -83,38 +90,111 @@ fn is_truthy(val: &Value) -> bool {
 }
 
 pub fn evaluate_stmt(stmt: &Stmt, env: &mut Environment) -> Result<Option<Value>, String> {
+    match evaluate_stmt_inner(stmt, env)? {
+        (val, _) => Ok(val),
+    }
+}
+
+fn evaluate_stmt_inner(stmt: &Stmt, env: &mut Environment) -> Result<(Option<Value>, LoopSignal), String> {
     match stmt {
         Stmt::Let(name, expr) => {
             let val = evaluate_expr(expr, env)?;
             env.set(name.clone(), val);
-            Ok(None)
+            Ok((None, LoopSignal::None))
+        }
+        Stmt::Assign(name, expr) => {
+            if env.get(name).is_none() {
+                return Err(format!("Undefined variable '{}' — use 'declare' first", name));
+            }
+            let val = evaluate_expr(expr, env)?;
+            env.set(name.clone(), val);
+            Ok((None, LoopSignal::None))
         }
         Stmt::Print(expr) => {
             let val = evaluate_expr(expr, env)?;
             println!("{}", val);
-            Ok(None)
+            Ok((None, LoopSignal::None))
         }
         Stmt::If { condition, then_branch, else_branch } => {
             let cond_val = evaluate_expr(condition, env)?;
             if is_truthy(&cond_val) {
                 let mut last = None;
                 for s in then_branch {
-                    last = evaluate_stmt(s, env)?;
+                    let (val, sig) = evaluate_stmt_inner(s, env)?;
+                    last = val;
+                    match sig {
+                        LoopSignal::Break | LoopSignal::Continue => return Ok((last, sig)),
+                        LoopSignal::None => {}
+                    }
                 }
-                Ok(last)
+                Ok((last, LoopSignal::None))
             } else if let Some(else_stmts) = else_branch {
                 let mut last = None;
                 for s in else_stmts {
-                    last = evaluate_stmt(s, env)?;
+                    let (val, sig) = evaluate_stmt_inner(s, env)?;
+                    last = val;
+                    match sig {
+                        LoopSignal::Break | LoopSignal::Continue => return Ok((last, sig)),
+                        LoopSignal::None => {}
+                    }
                 }
-                Ok(last)
+                Ok((last, LoopSignal::None))
             } else {
-                Ok(None)
+                Ok((None, LoopSignal::None))
             }
         }
+        Stmt::While { condition, body } => {
+            loop {
+                let cond_val = evaluate_expr(condition, env)?;
+                if !is_truthy(&cond_val) {
+                    break;
+                }
+                let mut should_break = false;
+                for s in body {
+                    let (_val, sig) = evaluate_stmt_inner(s, env)?;
+                    match sig {
+                        LoopSignal::Break => { should_break = true; break; }
+                        LoopSignal::Continue => break,
+                        LoopSignal::None => {}
+                    }
+                }
+                if should_break {
+                    break;
+                }
+            }
+            Ok((None, LoopSignal::None))
+        }
+        Stmt::For { variable, start, end, body } => {
+            let start_val = match evaluate_expr(start, env)? {
+                Value::Number(n) => n as i64,
+                _ => return Err("For loop range start must be a number".to_string()),
+            };
+            let end_val = match evaluate_expr(end, env)? {
+                Value::Number(n) => n as i64,
+                _ => return Err("For loop range end must be a number".to_string()),
+            };
+            let mut should_break = false;
+            for i in start_val..end_val {
+                env.set(variable.clone(), Value::Number(i as f64));
+                for s in body {
+                    let (_val, sig) = evaluate_stmt_inner(s, env)?;
+                    match sig {
+                        LoopSignal::Break => { should_break = true; break; }
+                        LoopSignal::Continue => break,
+                        LoopSignal::None => {}
+                    }
+                }
+                if should_break {
+                    break;
+                }
+            }
+            Ok((None, LoopSignal::None))
+        }
+        Stmt::Break => Ok((None, LoopSignal::Break)),
+        Stmt::Continue => Ok((None, LoopSignal::Continue)),
         Stmt::Expr(expr) => {
             let val = evaluate_expr(expr, env)?;
-            Ok(Some(val))
+            Ok((Some(val), LoopSignal::None))
         }
     }
 }

@@ -146,6 +146,34 @@ impl Parser {
                 Ok(Stmt::Print(expr))
             }
             Some(TokenType::If) => self.parse_if(),
+            Some(TokenType::While) => self.parse_while(),
+            Some(TokenType::For) => self.parse_for(),
+            Some(TokenType::Break) => {
+                self.advance();
+                Ok(Stmt::Break)
+            }
+            Some(TokenType::Continue) => {
+                self.advance();
+                Ok(Stmt::Continue)
+            }
+            Some(TokenType::Identifier(_)) => {
+                // Could be assignment (x = expr) or expression
+                let name = match self.current() {
+                    Some(TokenType::Identifier(n)) => n.clone(),
+                    _ => unreachable!(),
+                };
+                // Peek ahead: if next token is '=', it's assignment
+                if self.position + 1 < self.tokens.len() {
+                    if let Some(TokenType::Equal) = self.tokens.get(self.position + 1) {
+                        self.advance(); // consume identifier
+                        self.advance(); // consume '='
+                        let expr = self.parse_expression()?;
+                        return Ok(Stmt::Assign(name, expr));
+                    }
+                }
+                let expr = self.parse_expression()?;
+                Ok(Stmt::Expr(expr))
+            }
             _ => {
                 let expr = self.parse_expression()?;
                 Ok(Stmt::Expr(expr))
@@ -189,6 +217,44 @@ impl Parser {
             condition,
             then_branch,
             else_branch,
+        })
+    }
+
+    fn parse_while(&mut self) -> Result<Stmt, String> {
+        self.advance(); // consume 'while'
+        let condition = self.parse_expression()?;
+        let body = self.parse_block()?;
+        Ok(Stmt::While { condition, body })
+    }
+
+    fn parse_for(&mut self) -> Result<Stmt, String> {
+        self.advance(); // consume 'for'
+        let variable = match self.current() {
+            Some(TokenType::Identifier(name)) => name.clone(),
+            _ => return Err("Expected variable name after 'for'".to_string()),
+        };
+        self.advance();
+
+        match self.current() {
+            Some(TokenType::In) => self.advance(), // consume 'in'
+            _ => return Err("Expected 'in' after variable in for loop".to_string()),
+        }
+
+        let start = self.parse_expression()?;
+
+        match self.current() {
+            Some(TokenType::DotDot) => self.advance(), // consume '..'
+            _ => return Err("Expected '..' in for loop range".to_string()),
+        }
+
+        let end = self.parse_expression()?;
+        let body = self.parse_block()?;
+
+        Ok(Stmt::For {
+            variable,
+            start,
+            end,
+            body,
         })
     }
 

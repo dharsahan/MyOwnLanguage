@@ -22,6 +22,7 @@ impl std::fmt::Display for Value {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Let(String, Expr),
+    Assign(String, Expr),
     Print(Expr),
     Expr(Expr),
     If {
@@ -29,6 +30,18 @@ pub enum Stmt {
         then_branch: Vec<Stmt>,
         else_branch: Option<Vec<Stmt>>,
     },
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
+    For {
+        variable: String,
+        start: Expr,
+        end: Expr,
+        body: Vec<Stmt>,
+    },
+    Break,
+    Continue,
 }
 #[derive(Debug, Clone)]
 pub enum Expr{

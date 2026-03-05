@@ -52,6 +52,18 @@ pub enum TokenType {
     Else,
     #[token("while")]
     While,
+    #[token("for")]
+    For,
+    #[token("in")]
+    In,
+    #[token("..")]
+    DotDot,
+    #[token(",")]
+    Comma,
+    #[token("break")]
+    Break,
+    #[token("continue")]
+    Continue,
     #[token("return")] 
     Return,
     #[token("func")]
