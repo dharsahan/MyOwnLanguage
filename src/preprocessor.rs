@@ -1,26 +1,6 @@
-/// Converts Python-like indentation syntax into brace-based syntax.
-///
-/// Example input:
-/// ```
-/// if x > 0:
-///     print "yes"
-/// else:
-///     print "no"
-/// ```
-///
-/// Output:
-/// ```
-/// if x > 0 {
-/// print "yes"
-/// }
-/// else {
-/// print "no"
-/// }
-/// ```
 pub fn preprocess(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
 
-    // Find minimum indentation (ignoring empty and comment-only lines)
     let min_indent = lines
         .iter()
         .filter(|l| {
@@ -38,16 +18,13 @@ pub fn preprocess(source: &str) -> String {
     for line in &lines {
         let trimmed = line.trim();
 
-        // Skip blank lines and comments
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
 
-        // Compute indentation relative to the base
         let raw_indent = line.len() - line.trim_start().len();
         let indent = raw_indent.saturating_sub(min_indent);
 
-        // If we were expecting a deeper indent (after a colon line), register it
         if expecting_indent {
             if indent > *indent_stack.last().unwrap() {
                 indent_stack.push(indent);
@@ -55,14 +32,12 @@ pub fn preprocess(source: &str) -> String {
             expecting_indent = false;
         }
 
-        // Close blocks when we dedent
         while indent < *indent_stack.last().unwrap() {
             indent_stack.pop();
             result.push("}".to_string());
         }
 
         if is_block_opener(trimmed) {
-            // Strip the trailing colon and open a brace
             let without_colon = &trimmed[..trimmed.len() - 1];
             result.push(format!("{} {{", without_colon));
             expecting_indent = true;
@@ -71,7 +46,6 @@ pub fn preprocess(source: &str) -> String {
         }
     }
 
-    // Close any remaining open blocks
     while indent_stack.len() > 1 {
         indent_stack.pop();
         result.push("}".to_string());
@@ -80,7 +54,6 @@ pub fn preprocess(source: &str) -> String {
     result.join("\n")
 }
 
-/// Returns true if `line` ends with `:` and starts with a block-opening keyword.
 fn is_block_opener(line: &str) -> bool {
     if !line.ends_with(':') {
         return false;

@@ -1,4 +1,5 @@
 use crate::ast::{BinaryOperator, Expr, Stmt};
+use crate::error::LangError;
 use crate::lexer::TokenType;
 
 pub struct Parser {
@@ -13,17 +14,29 @@ impl Parser {
             position: 0,
         }
     }
+
     fn current(&self) -> Option<&TokenType> {
         self.tokens.get(self.position)
     }
+
     fn advance(&mut self) {
         self.position += 1;
     }
-    pub fn parse_expression(&mut self) -> Result<Expr, String> {
+
+    fn peek(&self, offset: usize) -> Option<&TokenType> {
+        self.tokens.get(self.position + offset)
+    }
+
+    fn has_tokens(&self) -> bool {
+        self.position < self.tokens.len()
+    }
+
+    pub fn parse_expression(&mut self) -> Result<Expr, LangError> {
         let left = self.parse_primary()?;
         self.parse_binary_op(left, 0)
     }
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+
+    fn parse_primary(&mut self) -> Result<Expr, LangError> {
         match self.current() {
             Some(TokenType::Number(n)) => {
                 let val = *n;
@@ -54,63 +67,69 @@ impl Parser {
                 Ok(Expr::Boolean(false))
             }
             Some(TokenType::LeftParen) => {
-                self.advance(); // consume '('
+                self.advance();
                 let expr = self.parse_expression()?;
                 match self.current() {
                     Some(TokenType::RightParen) => {
-                        self.advance(); // consume ')'
+                        self.advance();
                         Ok(expr)
                     }
-                    _ => Err("Expected closing ')'".to_string()),
+                    _ => Err(LangError::parse("Expected closing ')'")),
                 }
             }
-            _ => Err("Expected a primary expression (number, identifier, string, char, boolean, or parenthesized expression)".to_string()),
+            _ => Err(LangError::parse(
+                "Expected expression (number, identifier, string, char, boolean, or '(')",
+            )),
         }
     }
-    fn parse_binary_op(&mut self, left: Expr, min_prec: u8) -> Result<Expr, String> {
+
+    fn parse_binary_op(&mut self, left: Expr, min_prec: u8) -> Result<Expr, LangError> {
         let mut left = left;
-        while let Some(op) = self.current() {
-            let prec = match Self::get_precedence(op) {
-                Some(p) => p,
-                Option::None => break,
-            };
+
+        while let Some(prec) = self.current().and_then(Self::get_precedence) {
             if prec < min_prec {
                 break;
             }
-            let op = match op {
-                TokenType::Plus => BinaryOperator::Add,
-                TokenType::Minus => BinaryOperator::Subtract,
-                TokenType::Star => BinaryOperator::Multiply,
-                TokenType::Slash => BinaryOperator::Divide,
-                TokenType::EqualEqual => BinaryOperator::EqualEqual,
-                TokenType::NotEqual => BinaryOperator::NotEqual,
-                TokenType::Less => BinaryOperator::Less,
-                TokenType::Greater => BinaryOperator::Greater,
-                TokenType::LessEqual => BinaryOperator::LessEqual,
-                TokenType::GreaterEqual => BinaryOperator::GreaterEqual,
-                _ => return Err("Expected a binary operator".to_string()),
-            };
+
+            let op = self.token_to_binop()?;
             self.advance();
+
             let mut right = self.parse_primary()?;
-            while let Some(next_op) = self.current() {
-                let next_prec = match Self::get_precedence(next_op) {
-                    Some(p) => p,
-                    Option::None => break,
-                };
+
+            while let Some(next_prec) = self.current().and_then(Self::get_precedence) {
                 if next_prec > prec {
                     right = self.parse_binary_op(right, next_prec)?;
                 } else {
                     break;
                 }
             }
+
             left = Expr::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
             };
         }
+
         Ok(left)
     }
+
+    fn token_to_binop(&self) -> Result<BinaryOperator, LangError> {
+        match self.current() {
+            Some(TokenType::Plus) => Ok(BinaryOperator::Add),
+            Some(TokenType::Minus) => Ok(BinaryOperator::Subtract),
+            Some(TokenType::Star) => Ok(BinaryOperator::Multiply),
+            Some(TokenType::Slash) => Ok(BinaryOperator::Divide),
+            Some(TokenType::EqualEqual) => Ok(BinaryOperator::EqualEqual),
+            Some(TokenType::NotEqual) => Ok(BinaryOperator::NotEqual),
+            Some(TokenType::Less) => Ok(BinaryOperator::Less),
+            Some(TokenType::Greater) => Ok(BinaryOperator::Greater),
+            Some(TokenType::LessEqual) => Ok(BinaryOperator::LessEqual),
+            Some(TokenType::GreaterEqual) => Ok(BinaryOperator::GreaterEqual),
+            _ => Err(LangError::parse("Expected a binary operator")),
+        }
+    }
+
     fn get_precedence(op: &TokenType) -> Option<u8> {
         match op {
             TokenType::EqualEqual | TokenType::NotEqual => Some(0),
@@ -121,30 +140,11 @@ impl Parser {
         }
     }
 
-    pub fn parse_statement(&mut self) -> Result<Stmt, String> {
+
+    pub fn parse_statement(&mut self) -> Result<Stmt, LangError> {
         match self.current() {
-            Some(TokenType::Let) => {
-                self.advance(); 
-                
-                let name = match self.current() {
-                    Some(TokenType::Identifier(n)) => n.clone(),
-                    _ => return Err("Expected variable name".to_string()),
-                };
-                self.advance();
-
-                match self.current() {
-                    Some(TokenType::Equal) => self.advance(), 
-                    _ => return Err("Expected '='".to_string()),
-                }
-
-                let expr = self.parse_expression()?;
-                Ok(Stmt::Let(name, expr))
-            }
-            Some(TokenType::Print) => {
-                self.advance();
-                let expr = self.parse_expression()?;
-                Ok(Stmt::Print(expr))
-            }
+            Some(TokenType::Let) => self.parse_let(),
+            Some(TokenType::Print) => self.parse_print(),
             Some(TokenType::If) => self.parse_if(),
             Some(TokenType::While) => self.parse_while(),
             Some(TokenType::For) => self.parse_for(),
@@ -156,24 +156,7 @@ impl Parser {
                 self.advance();
                 Ok(Stmt::Continue)
             }
-            Some(TokenType::Identifier(_)) => {
-                // Could be assignment (x = expr) or expression
-                let name = match self.current() {
-                    Some(TokenType::Identifier(n)) => n.clone(),
-                    _ => unreachable!(),
-                };
-                // Peek ahead: if next token is '=', it's assignment
-                if self.position + 1 < self.tokens.len() {
-                    if let Some(TokenType::Equal) = self.tokens.get(self.position + 1) {
-                        self.advance(); // consume identifier
-                        self.advance(); // consume '='
-                        let expr = self.parse_expression()?;
-                        return Ok(Stmt::Assign(name, expr));
-                    }
-                }
-                let expr = self.parse_expression()?;
-                Ok(Stmt::Expr(expr))
-            }
+            Some(TokenType::Identifier(_)) => self.parse_assignment_or_expr(),
             _ => {
                 let expr = self.parse_expression()?;
                 Ok(Stmt::Expr(expr))
@@ -181,38 +164,81 @@ impl Parser {
         }
     }
 
-    fn parse_block(&mut self) -> Result<Vec<Stmt>, String> {
+    fn parse_let(&mut self) -> Result<Stmt, LangError> {
+        self.advance();
+
+        let name = match self.current() {
+            Some(TokenType::Identifier(n)) => n.clone(),
+            _ => return Err(LangError::parse("Expected variable name after 'declare'")),
+        };
+        self.advance();
+
+        match self.current() {
+            Some(TokenType::Equal) => self.advance(),
+            _ => return Err(LangError::parse("Expected '=' in declaration")),
+        }
+
+        let expr = self.parse_expression()?;
+        Ok(Stmt::Let(name, expr))
+    }
+
+    fn parse_print(&mut self) -> Result<Stmt, LangError> {
+        self.advance();
+        let expr = self.parse_expression()?;
+        Ok(Stmt::Print(expr))
+    }
+
+    fn parse_assignment_or_expr(&mut self) -> Result<Stmt, LangError> {
+        let name = match self.current() {
+            Some(TokenType::Identifier(n)) => n.clone(),
+            _ => unreachable!("called parse_assignment_or_expr without Identifier"),
+        };
+
+        if matches!(self.peek(1), Some(TokenType::Equal)) {
+            self.advance();
+            self.advance();
+            let expr = self.parse_expression()?;
+            return Ok(Stmt::Assign(name, expr));
+        }
+
+        let expr = self.parse_expression()?;
+        Ok(Stmt::Expr(expr))
+    }
+
+    fn parse_block(&mut self) -> Result<Vec<Stmt>, LangError> {
         match self.current() {
             Some(TokenType::LeftBrace) => self.advance(),
-            _ => return Err("Expected '{'".to_string()),
+            _ => return Err(LangError::parse("Expected '{'")),
         }
+
         let mut stmts = Vec::new();
-        while self.position < self.tokens.len() {
+        while self.has_tokens() {
             if let Some(TokenType::RightBrace) = self.current() {
                 self.advance();
                 return Ok(stmts);
             }
             stmts.push(self.parse_statement()?);
         }
-        Err("Expected '}'".to_string())
+
+        Err(LangError::parse("Expected '}'"))
     }
 
-    fn parse_if(&mut self) -> Result<Stmt, String> {
-        self.advance(); 
+    fn parse_if(&mut self) -> Result<Stmt, LangError> {
+        self.advance();
         let condition = self.parse_expression()?;
         let then_branch = self.parse_block()?;
-        let else_branch = if let Some(TokenType::Else) = self.current() {
-            self.advance(); 
-            if let Some(TokenType::If) = self.current() {
-                
-                let nested_if = self.parse_if()?;
-                Some(vec![nested_if])
+
+        let else_branch = if matches!(self.current(), Some(TokenType::Else)) {
+            self.advance();
+            if matches!(self.current(), Some(TokenType::If)) {
+                Some(vec![self.parse_if()?])
             } else {
                 Some(self.parse_block()?)
             }
         } else {
             None
         };
+
         Ok(Stmt::If {
             condition,
             then_branch,
@@ -220,31 +246,32 @@ impl Parser {
         })
     }
 
-    fn parse_while(&mut self) -> Result<Stmt, String> {
-        self.advance(); // consume 'while'
+    fn parse_while(&mut self) -> Result<Stmt, LangError> {
+        self.advance();
         let condition = self.parse_expression()?;
         let body = self.parse_block()?;
         Ok(Stmt::While { condition, body })
     }
 
-    fn parse_for(&mut self) -> Result<Stmt, String> {
-        self.advance(); // consume 'for'
+    fn parse_for(&mut self) -> Result<Stmt, LangError> {
+        self.advance();
+
         let variable = match self.current() {
             Some(TokenType::Identifier(name)) => name.clone(),
-            _ => return Err("Expected variable name after 'for'".to_string()),
+            _ => return Err(LangError::parse("Expected variable name after 'for'")),
         };
         self.advance();
 
         match self.current() {
-            Some(TokenType::In) => self.advance(), // consume 'in'
-            _ => return Err("Expected 'in' after variable in for loop".to_string()),
+            Some(TokenType::In) => self.advance(),
+            _ => return Err(LangError::parse("Expected 'in' after variable in for loop")),
         }
 
         let start = self.parse_expression()?;
 
         match self.current() {
-            Some(TokenType::DotDot) => self.advance(), // consume '..'
-            _ => return Err("Expected '..' in for loop range".to_string()),
+            Some(TokenType::DotDot) => self.advance(),
+            _ => return Err(LangError::parse("Expected '..' in for loop range")),
         }
 
         let end = self.parse_expression()?;
@@ -258,9 +285,9 @@ impl Parser {
         })
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Stmt>, String> {
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, LangError> {
         let mut statements = Vec::new();
-        while self.position < self.tokens.len() {
+        while self.has_tokens() {
             statements.push(self.parse_statement()?);
         }
         Ok(statements)

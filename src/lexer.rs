@@ -1,19 +1,51 @@
 use logos::Logos;
 
-
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
 #[logos(skip(r"#[^\n]*", allow_greedy = true))]
 pub enum TokenType {
     #[token("declare")]
-
     Let,
+    #[token("if")]
+    If,
+    #[token("else")]
+    Else,
+    #[token("while")]
+    While,
+    #[token("for")]
+    For,
+    #[token("in")]
+    In,
+    #[token("break")]
+    Break,
+    #[token("continue")]
+    Continue,
+    #[token("return")]
+    Return,
+    #[token("func")]
+    Function,
+    #[token("print")]
+    Print,
+    #[token("true")]
+    True,
+    #[token("false")]
+    False,
 
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Identifier(String),
-
     #[regex(r"[0-9]+(\.[0-9]+)?", |lex| lex.slice().parse::<f64>().unwrap())]
     Number(f64),
+    #[regex(r#""[^"]*""#, |lex| {
+        let s = lex.slice();
+        s[1..s.len()-1].to_string()
+    })]
+    StringLiteral(String),
+    #[regex(r"'[^']'", |lex| {
+        let s = lex.slice();
+        s.chars().nth(1).unwrap()
+    })]
+    CharLiteral(char),
+
     #[token("+")]
     Plus,
     #[token("-")]
@@ -36,6 +68,9 @@ pub enum TokenType {
     Less,
     #[token("=")]
     Equal,
+    #[token("..")]
+    DotDot,
+
     #[token(";")]
     Semicolon,
     #[token("(")]
@@ -46,46 +81,6 @@ pub enum TokenType {
     LeftBrace,
     #[token("}")]
     RightBrace,
-    #[token("if")]
-    If,
-    #[token("else")]
-    Else,
-    #[token("while")]
-    While,
-    #[token("for")]
-    For,
-    #[token("in")]
-    In,
-    #[token("..")]
-    DotDot,
     #[token(",")]
     Comma,
-    #[token("break")]
-    Break,
-    #[token("continue")]
-    Continue,
-    #[token("return")] 
-    Return,
-    #[token("func")]
-    Function,
-    #[token("true")]
-    True,
-    #[token("false")]
-    False,
-    #[token("print")]
-    Print,
-
-    #[regex(r#""[^"]*""#, |lex| {
-        let s = lex.slice();
-        s[1..s.len()-1].to_string()
-    })]
-    StringLiteral(String),
-
-    #[regex(r"'[^']'", |lex| {
-        let s = lex.slice();
-        s.chars().nth(1).unwrap()
-    })]
-    CharLiteral(char),
-    
-    
 }

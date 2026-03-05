@@ -1,14 +1,51 @@
 pub mod ast;
-pub mod codegen;
 pub mod error;
+pub mod evaluator;
 pub mod lexer;
 pub mod parser;
 pub mod preprocessor;
-pub mod semantic;
-pub mod evaluator;
+
+use error::LangError;
+use evaluator::Environment;
 use lexer::TokenType;
 use logos::Logos;
-use evaluator::Environment;
+
+fn tokenize(source: &str) -> Result<Vec<TokenType>, LangError> {
+    let mut lexer = TokenType::lexer(source);
+    let mut tokens = Vec::new();
+
+    while let Some(result) = lexer.next() {
+        match result {
+            Ok(token) => tokens.push(token),
+            Err(_) => {
+                return Err(LangError::lex(format!(
+                    "Unexpected token '{}'",
+                    lexer.slice()
+                )));
+            }
+        }
+    }
+
+    Ok(tokens)
+}
+
+fn run(source: &str) -> Result<(), LangError> {
+    let processed = preprocessor::preprocess(source);
+    let tokens = tokenize(&processed)?;
+
+    let mut parser = parser::Parser::new(tokens);
+    let statements = parser.parse()?;
+
+    let mut env = Environment::new();
+    for stmt in &statements {
+        match evaluator::evaluate_stmt(stmt, &mut env)? {
+            Some(val) => println!("{}", val),
+            None => {}
+        }
+    }
+
+    Ok(())
+}
 
 fn main() {
     let source_code = r#"
@@ -40,38 +77,17 @@ fn main() {
             print "medium"
         else:
             print "small"
+        for i in 0..3:
+            for j in 0..3:
+                print j
     "#;
 
-    // Preprocess: convert indentation + colons → braces
-    let processed = preprocessor::preprocess(source_code);
-    println!("=== Source ===");
+    
     println!("{}", source_code);
-    println!("=== Running ===");
+    
 
-    let mut lexer = TokenType::lexer(&processed);
-    let mut tokens = Vec::new();
-
-    while let Some(token_res) = lexer.next() {
-        if let Ok(token) = token_res {
-            tokens.push(token);
-        } else {
-            eprintln!("Lexer error at '{}'", lexer.slice());
-            return;
-        }
-    }
-
-    let mut parser = parser::Parser::new(tokens);
-    match parser.parse() {
-        Ok(statements) => {
-            let mut env = Environment::new();
-            for stmt in statements {
-                match evaluator::evaluate_stmt(&stmt, &mut env) {
-                    Ok(Some(val)) => println!("{}", val),
-                    Ok(None) => {}, 
-                    Err(e) => eprintln!("Runtime Error: {}", e),
-                }
-            }
-        }
-        Err(e) => eprintln!("Parse Error: {}", e),
+    if let Err(e) = run(source_code) {
+        eprintln!("{}", e);
+        std::process::exit(1);
     }
 }

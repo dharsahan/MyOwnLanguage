@@ -1,6 +1,6 @@
+use std::fmt;
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     Str(String),
@@ -8,8 +8,8 @@ pub enum Value {
     Boolean(bool),
 }
 
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{}", n),
             Value::Str(s) => write!(f, "{}", s),
@@ -19,7 +19,16 @@ impl std::fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone)]
+impl Value {
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            Value::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let(String, Expr),
     Assign(String, Expr),
@@ -43,19 +52,20 @@ pub enum Stmt {
     Break,
     Continue,
 }
-#[derive(Debug, Clone)]
-pub enum Expr{
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
     Number(f64),
     StringLiteral(String),
     CharLiteral(char),
     Boolean(bool),
     Variable(String),
-    BinaryOp{
-        left : Box<Expr>,
+    BinaryOp {
+        left: Box<Expr>,
         op: BinaryOperator,
         right: Box<Expr>,
-    }
-} 
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
@@ -69,4 +79,22 @@ pub enum BinaryOperator {
     Greater,
     LessEqual,
     GreaterEqual,
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let symbol = match self {
+            BinaryOperator::Add => "+",
+            BinaryOperator::Subtract => "-",
+            BinaryOperator::Multiply => "*",
+            BinaryOperator::Divide => "/",
+            BinaryOperator::EqualEqual => "==",
+            BinaryOperator::NotEqual => "!=",
+            BinaryOperator::Less => "<",
+            BinaryOperator::Greater => ">",
+            BinaryOperator::LessEqual => "<=",
+            BinaryOperator::GreaterEqual => ">=",
+        };
+        write!(f, "{}", symbol)
+    }
 }
